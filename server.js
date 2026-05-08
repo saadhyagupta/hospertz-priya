@@ -155,23 +155,30 @@ async function callGemini(phone, userMessage, retryCount = 0) {
     conversations[phone].push({ role: 'user', content: userMessage });
   }
 
-  // Keep last 14 messages (7 exchanges) to prevent context bloat
-  const history = conversations[phone].slice(-14);
+  // Take last 20 messages, then find the first user message so we never
+  // hand Gemini a history that starts with a model/assistant turn.
+  // (Bug: slice(-14) after 7 exchanges cuts off the leading user msg → Gemini 400)
+  const rawHistory = conversations[phone].slice(-20);
+  const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
+  const history = firstUserIdx > 0 ? rawHistory.slice(firstUserIdx) : rawHistory;
 
-  // Ensure conversation alternates properly for Gemini
-  // Gemini requires: user, model, user, model... (must start with user)
+  // Build contents with strict alternation (Gemini: user, model, user, model…)
   const contents = [];
   let lastRole = null;
   for (const msg of history) {
     const role = msg.role === 'assistant' ? 'model' : 'user';
-    // Skip duplicate consecutive roles to avoid Gemini errors
-    if (role === lastRole) continue;
+    if (role === lastRole) continue; // skip consecutive same-role messages
     contents.push({ role, parts: [{ text: msg.content }] });
     lastRole = role;
   }
 
-  // Must end with a user message
-  if (contents.length === 0 || contents[contents.length - 1].role !== 'user') {
+  // Safety: must start with user
+  if (contents.length === 0 || contents[0].role !== 'user') {
+    contents.unshift({ role: 'user', parts: [{ text: userMessage }] });
+  }
+
+  // Safety: must end with user
+  if (contents[contents.length - 1].role !== 'user') {
     contents.push({ role: 'user', parts: [{ text: userMessage }] });
   }
 
@@ -205,9 +212,12 @@ async function callGemini(phone, userMessage, retryCount = 0) {
     || "Hi! I'm Dhwani from Hospertz. How can I help with your hospital project? 😊";
 
   conversations[phone].push({ role: 'assistant', content: reply });
-  // Trim to last 14 entries to keep context manageable
-  if (conversations[phone].length > 14) {
-    conversations[phone] = conversations[phone].slice(-14);
+
+  // Keep max 30 messages; after trimming, ensure we still start with a user msg
+  if (conversations[phone].length > 30) {
+    conversations[phone] = conversations[phone].slice(-30);
+    const fu = conversations[phone].findIndex(m => m.role === 'user');
+    if (fu > 0) conversations[phone] = conversations[phone].slice(fu);
   }
 
   return reply;
