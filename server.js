@@ -56,7 +56,7 @@ async function callGemini(phone, userMessage) {
     contents,
     generationConfig: { temperature: 0.8, maxOutputTokens: 300 }
   };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) { const err = await res.text(); throw new Error(`Gemini ${res.status}: ${err}`); }
   const data = await res.json();
