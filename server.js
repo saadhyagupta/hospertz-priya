@@ -1,4 +1,4 @@
-// ── HOSPERTZ WHATSAPP AI AGENT – PRIYA ──────────────────────────────────────
+// ── HOSPERTZ WHATSAPP AI AGENT – DHWANI ──────────────────────────────────────
 // Stack: Node.js + Express + Google Gemini + Interakt WhatsApp API
 // Deploy free on: railway.app
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ function buildSystemPrompt(phone) {
 
   const hasEnoughForMeeting = p.name && p.email && p.projectType;
 
-  return `You are Priya, a warm and professional sales representative from Hospertz India Pvt. Ltd. – India's leading hospital design, construction & turnkey project company.
+  return `You are Dhwani, a warm and professional sales representative from Hospertz India Pvt. Ltd. – India's leading hospital design, construction & turnkey project company.
 
 ${HOSPERTZ_PORTFOLIO}
 
@@ -103,11 +103,11 @@ CURRENT LEAD INFO: ${known}
 ${missing.length > 0 ? `STILL NEED TO COLLECT: ${missing.join(', ')}` : '✅ All key info collected — push for the meeting now.'}
 ${hasEnoughForMeeting ? '\n⚠️ IMPORTANT: You have enough info. Your NEXT reply MUST share the meeting link above.' : ''}
 
-${isNew ? 'FIRST MESSAGE: Greet warmly as Priya from Hospertz. Ask ONE question about their project.' : 'ONGOING: Continue naturally. Ask ONE missing piece at a time. Never dump multiple questions.'}
+${isNew ? 'FIRST MESSAGE: Greet warmly as Dhwani from Hospertz. Ask ONE question about their project.' : 'ONGOING: Continue naturally. Ask ONE missing piece at a time. Never dump multiple questions.'}
 
 RULES:
 - NEVER make up prices or timelines — "Our architect will give you an accurate estimate on the call"
-- ALWAYS stay in character as Priya from Hospertz
+- ALWAYS stay in character as Dhwani from Hospertz
 - If lead books the meeting, confirm warmly — say Dr. Jadhav's team will reach out via hospertz@gmail.com
 - Keep responses SHORT — this is WhatsApp, not email`;
 }
@@ -202,7 +202,7 @@ async function callGemini(phone, userMessage, retryCount = 0) {
 
   const data  = await res.json();
   const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
-    || "Hi! I'm Priya from Hospertz. How can I help with your hospital project? 😊";
+    || "Hi! I'm Dhwani from Hospertz. How can I help with your hospital project? 😊";
 
   conversations[phone].push({ role: 'assistant', content: reply });
   // Trim to last 14 entries to keep context manageable
@@ -221,7 +221,7 @@ async function sendWhatsAppMessage(phone, message) {
     body: JSON.stringify({
       countryCode:  '+91',
       phoneNumber:  phone.replace(/^91/, ''),
-      callbackData: 'priya_reply',
+      callbackData: 'dhwani_reply',
       type:         'Text',
       data:         { message }
     })
@@ -232,7 +232,7 @@ async function sendWhatsAppMessage(phone, message) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// FUNNEL 1 — INBOUND: Customer messages Hospertz WhatsApp → Priya auto-replies
+// FUNNEL 1 — INBOUND: Customer messages Hospertz WhatsApp → Dhwani auto-replies
 // POST /api/webhook
 // ────────────────────────────────────────────────────────────────────────────
 app.post('/api/webhook', async (req, res) => {
@@ -259,17 +259,17 @@ app.post('/api/webhook', async (req, res) => {
     // Respond to Interakt immediately (prevents timeout retries)
     res.status(200).json({ status: 'processing' });
 
-    // Generate and send Priya's reply
+    // Generate and send Dhwani's reply
     try {
       const reply = await callGemini(phone, text);
-      console.log(`[PRIYA → ${phone}]: ${reply}`);
+      console.log(`[DHWANI → ${phone}]: ${reply}`);
       await sendWhatsAppMessage(phone, reply);
     } catch (aiErr) {
       console.error('AI/Send error:', aiErr.message);
       // Send a fallback so the customer isn't left hanging
       try {
         await sendWhatsAppMessage(phone,
-          "Hi! I'm Priya from Hospertz 😊 I'm experiencing a brief technical issue. Please send your message again and I'll be right with you!");
+          "Hi! I'm Dhwani from Hospertz 😊 I'm experiencing a brief technical issue. Please send your message again and I'll be right with you!");
       } catch (fbErr) {
         console.error('Fallback send failed:', fbErr.message);
       }
@@ -282,7 +282,7 @@ app.post('/api/webhook', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// FUNNEL 2 — OUTBOUND: Hospertz inputs a lead → Priya sends the FIRST message
+// FUNNEL 2 — OUTBOUND: Hospertz inputs a lead → Dhwani sends the FIRST message
 // POST /send-first-message
 // Body: { "name": "Dr. Sharma", "phone": "9876543210", "projectHint": "200-bed hospital in Pune" }
 // ────────────────────────────────────────────────────────────────────────────
@@ -306,13 +306,13 @@ app.post('/send-first-message', async (req, res) => {
     // Step 2: Send warm AI-generated follow-up
     const openingPrompt = `You are starting an outbound WhatsApp conversation with ${name || 'a doctor/hospital admin'}.
 ${projectHint ? `Context: They may be interested in: ${projectHint}.` : ''}
-Write a very warm, short follow-up message (under 50 words) as Priya from Hospertz — right after the brand intro was sent.
+Write a very warm, short follow-up message (under 50 words) as Dhwani from Hospertz — right after the brand intro was sent.
 Ask ONE open question about their hospital project to start the conversation. Don't repeat the services list.`;
 
     const followUp = await callGemini(fullPhone, openingPrompt);
     await sendWhatsAppMessage(cleanPhone, followUp);
 
-    console.log(`[OUTBOUND → ${cleanPhone}]: Intro + "${followUp}"`);
+    console.log(`[OUTBOUND → ${cleanPhone}]: Intro + Dhwani follow-up: "${followUp}"`);
     res.json({ status: 'sent', phone: cleanPhone, name, intro: 'sent', followUp });
 
   } catch (err) {
@@ -348,7 +348,7 @@ app.get('/test', async (req, res) => {
   if (result.gemini?.ok) {
     try {
       const phone = CONFIG.ALERT_PHONE.replace(/^91/, '');
-      const sendRes = await sendWhatsAppMessage(phone, 'Test from Priya: ' + result.gemini.reply.slice(0, 80));
+      const sendRes = await sendWhatsAppMessage(phone, 'Test from Dhwani: ' + result.gemini.reply.slice(0, 80));
       result.interakt = { ok: true, response: sendRes };
     } catch (e) {
       result.interakt = { ok: false, error: e.message };
@@ -361,12 +361,12 @@ app.get('/test', async (req, res) => {
 // ── HOME / STATUS ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
-    status:    'Priya is live ✅',
+    status:    'Dhwani is live ✅',
     ai:        'Gemini 2.5 Flash',
     meetLink:  CONFIG.MEET_LINK,
     funnels: {
-      inbound:  'Customer texts Hospertz WA → Priya auto-replies  [POST /api/webhook]',
-      outbound: 'Input a lead → Priya sends first msg             [POST /send-first-message]'
+      inbound:  'Customer texts Hospertz WA → Dhwani auto-replies  [POST /api/webhook]',
+      outbound: 'Input a lead → Dhwani sends first msg             [POST /send-first-message]'
     },
     endpoints: {
       test:    'GET  /test',
@@ -378,5 +378,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(CONFIG.PORT, () => {
-  console.log(`Priya running on port ${CONFIG.PORT} | Gemini key: ${!!CONFIG.GEMINI_API_KEY} | Meet: ${CONFIG.MEET_LINK}`);
+  console.log(`Dhwani running on port ${CONFIG.PORT} | Gemini key: ${!!CONFIG.GEMINI_API_KEY} | Meet: ${CONFIG.MEET_LINK}`);
 });
