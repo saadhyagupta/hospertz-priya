@@ -1,6 +1,7 @@
-// HOSPERTZ WHATSAPP AI AGENT - PRIYA
+// ── HOSPERTZ WHATSAPP AI AGENT – PRIYA ──────────────────────────────────────
 // Stack: Node.js + Express + Google Gemini + Interakt WhatsApp API
 // Deploy free on: railway.app
+// ─────────────────────────────────────────────────────────────────────────────
 
 const express = require('express');
 const app = express();
@@ -11,20 +12,38 @@ const CONFIG = {
   INTERAKT_API_KEY: process.env.INTERAKT_API_KEY  || 'WmYyYld6ZjB0MEZEVnBxR1U1ODRUbU56ZTlsQmhQYVFBNGsxTmhZYk1mbzo=',
   ALERT_PHONE:      process.env.ALERT_PHONE       || '918369333635',
   BUSINESS_PHONE:   process.env.BUSINESS_PHONE    || '918655963914',
-  MEET_LINK:        process.env.MEET_LINK         || 'https://calendly.com/hospertz',
+  MEET_LINK:        process.env.MEET_LINK         || 'https://calendly.com/automate-hospertz/30min',
   PORT:             process.env.PORT              || 3000
 };
 
-const conversations = {};
-const leadProfiles  = {};
+// ── IN-MEMORY STORES ─────────────────────────────────────────────────────────
+const conversations = {}; // { phone: [{ role, content }] }
+const leadProfiles  = {}; // { phone: { name, email, projectType, city, budget } }
 
-// ── BRAND INTRO (sent as first message in outbound / inbound) ─────────────────
+// ── HOSPERTZ PORTFOLIO & PAST PROJECTS ───────────────────────────────────────
+const HOSPERTZ_PORTFOLIO = `
+HOSPERTZ COMPLETED PROJECTS (share 1-2 when relevant):
+1. Kohinoor Hospital, Kurla, Mumbai – 150-bed multi-speciality, full turnkey
+2. Ruby Hall Clinic Expansion, Pune – ICU & OT renovation, NABH compliance
+3. Global Hospital, Mumbai – Greenfield 200-bed hospital design & construction
+4. Navgati Hospital, Nashik – Modular OT complex with 4 operation theatres
+5. Sunshine Maternity & NICU, Thane – Complete NICU/PICU design & fit-out
+6. LifeCare Diagnostics, Navi Mumbai – Radiology & diagnostic centre interior
+7. MedCure Hospital, Aurangabad – 80-bed hospital renovation + OPD redesign
+8. City Ortho & Spine, Pune – Speciality orthopaedic greenfield hospital build
+9. Horizon Multispeciality, Nagpur – 120-bed hospital with modular theatres
+10. Samarth Hospital, Kolhapur – Full hospital interior + NABH documentation
+
+SERVICES: Greenfield hospital construction | Renovation & expansion | OT/ICU/NICU/PICU setup | Modular OTs | Hospital interiors | Space planning | NABH compliance | Medical gas pipeline | Equipment coordination
+
+KEY FACTS: 100+ projects pan-India | Maharashtra, Karnataka, Rajasthan, MP, UP & more | Mumbai-based | Founder: Dr. Vishal Jadhav
+`;
+
+// ── BRAND INTRO (sent as first outbound message) ──────────────────────────────
 const BRAND_INTRO = `Hello! 👋
-
 This is Team *HOSPERTZ INDIA PVT LTD* 🏥
 
 We are a healthcare infrastructure and hospital development company working on modern healthcare projects across India.
-
 🌐 www.hospertz.com
 
 We specialise in:
@@ -37,93 +56,63 @@ We specialise in:
 ✅ Infection Control & Healthcare Engineering
 ✅ End-to-End Project Management for Clinics, Hospitals & Medical Colleges
 
-From concept to commissioning, we help doctors and healthcare organisations build fully functional, efficient, and future-ready healthcare facilities.
-
-We have been following your remarkable work and contribution to the medical community and would be honoured to explore a professional association or collaborative opportunity with you in the healthcare ecosystem.
-
-Looking forward to connecting with you! 🤝
+From concept to commissioning...
 
 Warm regards,
-*HOSPERTZ INDIA PVT LTD*
-www.hospertz.com`;
+*HOSPERTZ INDIA PVT LTD* | www.hospertz.com`;
 
-// ── FOUNDER INFO ──────────────────────────────────────────────────────────────
-const FOUNDER_INFO = `
-ABOUT OUR FOUNDER:
-Dr. Vishal Jadhav is the founder of Hospertz India Pvt. Ltd. He has 15+ years of deep expertise in hospital planning, healthcare infrastructure, and turnkey hospital project execution. Under his leadership, Hospertz has successfully delivered 100+ hospital projects pan-India, spanning Maharashtra, Karnataka, Rajasthan, Madhya Pradesh, Uttar Pradesh, and more. Dr. Jadhav personally oversees complex projects and is passionate about making world-class healthcare infrastructure accessible across India.
-`;
-
-// ── HOSPERTZ PORTFOLIO ────────────────────────────────────────────────────────
-const HOSPERTZ_PORTFOLIO = `
-HOSPERTZ COMPLETED PROJECTS (reference when relevant):
-1. Kohinoor Hospital, Kurla, Mumbai - 150-bed multi-speciality, full turnkey
-2. Ruby Hall Clinic Expansion, Pune - ICU & OT block, NABH compliance
-3. Global Hospital, Mumbai - Greenfield 200-bed design & construction
-4. Navgati Hospital, Nashik - Modular OT complex, 4 operation theatres
-5. Sunshine Maternity & NICU, Thane - Complete NICU/PICU design & fit-out
-6. LifeCare Diagnostics, Navi Mumbai - Radiology & diagnostic centre
-7. MedCure Hospital, Aurangabad - 80-bed renovation + OPD redesign
-8. City Ortho & Spine, Pune - Speciality orthopaedic greenfield build
-9. Horizon Multispeciality, Nagpur - 120-bed hospital with modular theatres
-10. Samarth Hospital, Kolhapur - Full hospital interior + NABH documentation
-`;
-
-// ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
+// ── SYSTEM PROMPT BUILDER ────────────────────────────────────────────────────
 function buildSystemPrompt(phone) {
-  const p      = leadProfiles[phone] || {};
-  const isNew  = !conversations[phone] || conversations[phone].length === 0;
-  const known  = Object.keys(p).length > 0 ? JSON.stringify(p) : 'nothing yet';
+  const p     = leadProfiles[phone] || {};
+  const isNew = !conversations[phone] || conversations[phone].length === 0;
+  const known = Object.keys(p).length > 0 ? JSON.stringify(p) : 'nothing yet';
 
   const missing = [
     !p.name        && 'name',
     !p.email       && 'email address',
-    !p.projectType && 'project type / requirement',
+    !p.projectType && 'project type (new hospital / renovation / OT / ICU)',
     !p.city        && 'city/location',
+    !p.budget      && 'budget or bed count',
   ].filter(Boolean);
 
-  const hasRequirements = p.projectType || p.projectHint;
-  const hasContact      = p.name && p.email;
+  const hasEnoughForMeeting = p.name && p.email && p.projectType;
 
-  return `You are Priya, a warm and professional representative from Hospertz India Pvt. Ltd.
+  return `You are Priya, a warm and professional sales representative from Hospertz India Pvt. Ltd. – India's leading hospital design, construction & turnkey project company.
 
 ${HOSPERTZ_PORTFOLIO}
-${FOUNDER_INFO}
+
+FOUNDER: Dr. Vishal Jadhav – 15+ years expertise, 100+ hospital projects across India. Mention him naturally when building trust.
 
 YOUR PERSONA:
-- You speak as the Hospertz team, warm and professional
-- Write in simple English, WhatsApp style — short paragraphs, not walls of text
-- Use emojis tastefully (not every sentence)
-- Keep replies under 120 words unless sharing the intro or services
-- Never sound like a bot — sound like a real, helpful colleague
+- Warm, friendly, helpful — like a knowledgeable colleague
+- Write in simple English, short sentences, WhatsApp style
+- Use occasional emojis (😊 📅 🏥) but keep it professional
+- Keep each reply under 90 words — never write long paragraphs
 
-CONVERSATION FLOW — FOLLOW THIS ORDER:
-Stage 1 — INTRO: The brand intro has already been sent. Now invite them to share their project/requirement.
-Stage 2 — UNDERSTAND REQUIREMENT: Ask what they are looking to build or upgrade. Listen carefully. Ask ONE question at a time. Understand: project type, location, scale (beds/size), timeline.
-Stage 3 — CONVINCE & BUILD TRUST: Share 1-2 relevant completed projects from the portfolio. Mention Dr. Vishal Jadhav's expertise. Make them feel Hospertz is the perfect partner.
-Stage 4 — COLLECT CONTACT: Ask for their name and email so the team can share a detailed proposal.
-Stage 5 — BOOK MEETING: Once you know their requirement and have their contact, push warmly for a meeting. Say something like: "Our founder Dr. Vishal Jadhav would personally love to connect with you for a brief call to understand your vision. Could you share a date and time that works best for you this week or next?" — Then when they give availability, confirm the meeting warmly.
-Stage 6 — CONFIRM MEETING: Once they give a time, say: "Wonderful! I have noted your availability. Our team will send you a calendar invite and meeting link to your email shortly. Dr. Jadhav is looking forward to speaking with you!"
+CONVERSATION FLOW:
+Step 1: Understand their project (type, location, scale)
+Step 2: Build trust — mention 1-2 relevant past projects + Dr. Vishal Jadhav
+Step 3: Collect NAME (ask naturally)
+Step 4: Collect EMAIL — "Could I get your email so our architect can share a detailed proposal?"
+Step 5: Once you have name + email + project type → push for a FREE meeting:
+  "I'd love to connect you with Dr. Vishal Jadhav for a FREE 30-min requirements call. Here's the link 📅
+  👉 ${CONFIG.MEET_LINK}
+  No obligations — just a quick call to understand your vision. Shall I confirm your slot?"
 
 CURRENT LEAD INFO: ${known}
-${missing.length > 0 ? 'STILL NEED: ' + missing.join(', ') : 'All key info collected.'}
+${missing.length > 0 ? `STILL NEED TO COLLECT: ${missing.join(', ')}` : '✅ All key info collected — push for the meeting now.'}
+${hasEnoughForMeeting ? '\n⚠️ IMPORTANT: You have enough info. Your NEXT reply MUST share the meeting link above.' : ''}
 
-${!hasRequirements ? 'NEXT STEP: Invite them to share their project requirement.' : ''}
-${hasRequirements && !hasContact ? 'NEXT STEP: Collect their name and email.' : ''}
-${hasContact && hasRequirements ? 'NEXT STEP: Push for meeting. Ask for their date/time availability.' : ''}
-
-${isNew
-  ? 'FIRST REPLY: The brand intro was just sent to this lead. Now send a short warm follow-up inviting them to share what they are working on. Keep it to 2-3 lines. Example: "We would love to understand your project better. Are you planning a new hospital, a renovation, or perhaps a specialised setup like an OT or ICU? Do share more and we will guide you from there! 😊"'
-  : 'ONGOING: Continue naturally from where the conversation left off.'}
+${isNew ? 'FIRST MESSAGE: Greet warmly as Priya from Hospertz. Ask ONE question about their project.' : 'ONGOING: Continue naturally. Ask ONE missing piece at a time. Never dump multiple questions.'}
 
 RULES:
-- Never make up prices, timelines, or technical specs
-- If asked about cost, say: "Our team will prepare a detailed estimate based on your specific requirements — no two projects are the same!"
-- Always mention Dr. Vishal Jadhav when talking about leadership/expertise
-- After a meeting is agreed upon, confirm warmly and mention the calendar invite will come via email
-- Website: www.hospertz.com | Email: hospertz@gmail.com`;
+- NEVER make up prices or timelines — "Our architect will give you an accurate estimate on the call"
+- ALWAYS stay in character as Priya from Hospertz
+- If lead books the meeting, confirm warmly — say Dr. Jadhav's team will reach out via hospertz@gmail.com
+- Keep responses SHORT — this is WhatsApp, not email`;
 }
 
-// ── AUTO-EXTRACT LEAD INFO ────────────────────────────────────────────────────
+// ── AUTO-EXTRACT LEAD INFO FROM MESSAGES ─────────────────────────────────────
 function extractLeadInfo(phone, text, customerName) {
   if (!leadProfiles[phone]) leadProfiles[phone] = {};
   const p = leadProfiles[phone];
@@ -135,59 +124,96 @@ function extractLeadInfo(phone, text, customerName) {
   if (emailMatch && !p.email) p.email = emailMatch[0];
 
   if (!p.projectType) {
-    if      (t.includes('new hospital') || t.includes('greenfield') || t.includes('build')) p.projectType = 'Greenfield new hospital';
-    else if (t.includes('renovat') || t.includes('expand') || t.includes('upgrade'))        p.projectType = 'Renovation/expansion';
-    else if (t.includes('operation theatre') || t.includes('ot'))                           p.projectType = 'OT setup';
-    else if (t.includes('icu') || t.includes('nicu') || t.includes('picu'))                 p.projectType = 'ICU/NICU setup';
-    else if (t.includes('interior') || t.includes('design') || t.includes('clinic'))        p.projectType = 'Hospital interiors / clinic';
-    else if (t.includes('medical college') || t.includes('college'))                        p.projectType = 'Medical college';
+    if      (t.includes('new hospital') || t.includes('greenfield') || t.includes('build a hospital')) p.projectType = 'Greenfield new hospital';
+    else if (t.includes('renovat') || t.includes('expand') || t.includes('upgrade'))                   p.projectType = 'Renovation/expansion';
+    else if (t.includes('operation theatre') || t.includes('ot setup') || t.includes('modular ot'))    p.projectType = 'OT setup';
+    else if (t.includes('icu') || t.includes('nicu') || t.includes('picu'))                            p.projectType = 'ICU/NICU setup';
+    else if (t.includes('interior') || t.includes('design') || t.includes('fit out'))                  p.projectType = 'Hospital interiors';
   }
 
-  // Detect meeting confirmation
-  if (t.includes('monday') || t.includes('tuesday') || t.includes('wednesday') ||
-      t.includes('thursday') || t.includes('friday') || t.includes('saturday') ||
-      t.includes('sunday') || t.match(/\d{1,2}(am|pm|\s*o'clock)/)) {
-    p.availabilityShared = true;
+  if (!p.city) {
+    const cities = ['mumbai','pune','delhi','bangalore','bengaluru','hyderabad','chennai','nagpur','nashik','aurangabad','kolhapur','thane','navi mumbai','ahmedabad','surat','jaipur','lucknow','bhopal','indore'];
+    for (const city of cities) {
+      if (t.includes(city)) { p.city = city.charAt(0).toUpperCase() + city.slice(1); break; }
+    }
   }
 
-  if (t.includes('confirmed') || t.includes('booked') || t.includes('scheduled')) {
+  if (t.includes('booked') || t.includes('confirmed') || t.includes('scheduled')) {
     p.meetingBooked = true;
   }
 
   leadProfiles[phone] = p;
 }
 
-// ── CALL GEMINI ───────────────────────────────────────────────────────────────
-async function callGemini(phone, userMessage) {
+// ── CALL GEMINI (with retry) ──────────────────────────────────────────────────
+async function callGemini(phone, userMessage, retryCount = 0) {
   if (!CONFIG.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
   if (!conversations[phone]) conversations[phone] = [];
-  conversations[phone].push({ role: 'user', content: userMessage });
 
-  const contents = conversations[phone].map(msg => ({
-    role:  msg.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: msg.content }]
-  }));
+  // Only push user message on first attempt (not retries)
+  if (retryCount === 0) {
+    conversations[phone].push({ role: 'user', content: userMessage });
+  }
+
+  // Keep last 14 messages (7 exchanges) to prevent context bloat
+  const history = conversations[phone].slice(-14);
+
+  // Ensure conversation alternates properly for Gemini
+  // Gemini requires: user, model, user, model... (must start with user)
+  const contents = [];
+  let lastRole = null;
+  for (const msg of history) {
+    const role = msg.role === 'assistant' ? 'model' : 'user';
+    // Skip duplicate consecutive roles to avoid Gemini errors
+    if (role === lastRole) continue;
+    contents.push({ role, parts: [{ text: msg.content }] });
+    lastRole = role;
+  }
+
+  // Must end with a user message
+  if (contents.length === 0 || contents[contents.length - 1].role !== 'user') {
+    contents.push({ role: 'user', parts: [{ text: userMessage }] });
+  }
 
   const body = {
     system_instruction: { parts: [{ text: buildSystemPrompt(phone) }] },
     contents,
-    generationConfig: { temperature: 0.8, maxOutputTokens: 400 }
+    generationConfig: { temperature: 0.75, maxOutputTokens: 300 }
   };
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(25000) // 25s timeout
+  });
 
-  if (!res.ok) { const err = await res.text(); throw new Error(`Gemini ${res.status}: ${err}`); }
+  if (!res.ok) {
+    const err = await res.text();
+    // Retry once on 5xx or rate limit errors
+    if (retryCount === 0 && (res.status >= 500 || res.status === 429)) {
+      console.log(`Gemini ${res.status} – retrying in 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+      return callGemini(phone, userMessage, 1);
+    }
+    throw new Error(`Gemini ${res.status}: ${err}`);
+  }
 
   const data  = await res.json();
-  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Hi! This is Team Hospertz. How can we help you today?";
+  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
+    || "Hi! I'm Priya from Hospertz. How can I help with your hospital project? 😊";
 
   conversations[phone].push({ role: 'assistant', content: reply });
-  if (conversations[phone].length > 30) conversations[phone] = conversations[phone].slice(-30);
+  // Trim to last 14 entries to keep context manageable
+  if (conversations[phone].length > 14) {
+    conversations[phone] = conversations[phone].slice(-14);
+  }
+
   return reply;
 }
 
-// ── SEND WHATSAPP VIA INTERAKT ────────────────────────────────────────────────
+// ── SEND WHATSAPP MESSAGE VIA INTERAKT ───────────────────────────────────────
 async function sendWhatsAppMessage(phone, message) {
   const res = await fetch('https://api.interakt.ai/v1/public/message/', {
     method:  'POST',
@@ -205,7 +231,10 @@ async function sendWhatsAppMessage(phone, message) {
   return data;
 }
 
-// ── FUNNEL 1: INBOUND ─────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// FUNNEL 1 — INBOUND: Customer messages Hospertz WhatsApp → Priya auto-replies
+// POST /api/webhook
+// ────────────────────────────────────────────────────────────────────────────
 app.post('/api/webhook', async (req, res) => {
   try {
     const body = req.body;
@@ -227,59 +256,75 @@ app.post('/api/webhook', async (req, res) => {
     console.log(`[INBOUND] ${phone}: ${text}`);
     extractLeadInfo(phone, text, name);
 
+    // Respond to Interakt immediately (prevents timeout retries)
     res.status(200).json({ status: 'processing' });
 
+    // Generate and send Priya's reply
     try {
       const reply = await callGemini(phone, text);
-      console.log(`[PRIYA -> ${phone}]: ${reply}`);
+      console.log(`[PRIYA → ${phone}]: ${reply}`);
       await sendWhatsAppMessage(phone, reply);
     } catch (aiErr) {
       console.error('AI/Send error:', aiErr.message);
+      // Send a fallback so the customer isn't left hanging
+      try {
+        await sendWhatsAppMessage(phone,
+          "Hi! I'm Priya from Hospertz 😊 I'm experiencing a brief technical issue. Please send your message again and I'll be right with you!");
+      } catch (fbErr) {
+        console.error('Fallback send failed:', fbErr.message);
+      }
     }
+
   } catch (err) {
     console.error('Webhook handler error:', err.message);
     res.status(200).json({ status: 'error', message: err.message });
   }
 });
 
-// ── FUNNEL 2: OUTBOUND ────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// FUNNEL 2 — OUTBOUND: Hospertz inputs a lead → Priya sends the FIRST message
 // POST /send-first-message
-// Body: { "name": "Dr. Sharma", "phone": "9876543210", "projectHint": "100-bed hospital in Pune" }
-// Priya sends the brand intro first, then a warm follow-up question
+// Body: { "name": "Dr. Sharma", "phone": "9876543210", "projectHint": "200-bed hospital in Pune" }
+// ────────────────────────────────────────────────────────────────────────────
 app.post('/send-first-message', async (req, res) => {
   try {
     const { name, phone, projectHint } = req.body;
-    if (!phone) return res.status(400).json({ error: 'phone is required' });
+    if (!phone) return res.status(400).json({ error: 'phone is required (10-digit Indian number)' });
 
     const cleanPhone = phone.toString().replace(/^(\+91|91)/, '').replace(/\D/g, '');
     const fullPhone  = '91' + cleanPhone;
 
+    // Pre-load lead profile
     if (!leadProfiles[fullPhone]) leadProfiles[fullPhone] = {};
     if (name)        leadProfiles[fullPhone].name        = name;
     if (projectHint) leadProfiles[fullPhone].projectHint = projectHint;
 
-    // Step 1: Send brand intro
+    // Step 1: Send the brand intro
     await sendWhatsAppMessage(cleanPhone, BRAND_INTRO);
-    console.log(`[OUTBOUND INTRO -> ${cleanPhone}]`);
-
-    // Small delay so messages arrive in order
     await new Promise(r => setTimeout(r, 1500));
 
-    // Step 2: Send warm follow-up question via Gemini
-    const followUpPrompt = `The brand intro has just been sent to ${name || 'this doctor/healthcare professional'}.${projectHint ? ' We know they may be interested in: ' + projectHint + '.' : ''} Now send a short 2-3 line warm follow-up inviting them to share their project or requirement. Be friendly, not salesy.`;
+    // Step 2: Send warm AI-generated follow-up
+    const openingPrompt = `You are starting an outbound WhatsApp conversation with ${name || 'a doctor/hospital admin'}.
+${projectHint ? `Context: They may be interested in: ${projectHint}.` : ''}
+Write a very warm, short follow-up message (under 50 words) as Priya from Hospertz — right after the brand intro was sent.
+Ask ONE open question about their hospital project to start the conversation. Don't repeat the services list.`;
 
-    const followUp = await callGemini(fullPhone, followUpPrompt);
+    const followUp = await callGemini(fullPhone, openingPrompt);
     await sendWhatsAppMessage(cleanPhone, followUp);
-    console.log(`[OUTBOUND FOLLOWUP -> ${cleanPhone}]: ${followUp}`);
 
+    console.log(`[OUTBOUND → ${cleanPhone}]: Intro + "${followUp}"`);
     res.json({ status: 'sent', phone: cleanPhone, name, intro: 'sent', followUp });
+
   } catch (err) {
     console.error('Outbound error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── VIEW ALL LEADS ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// VIEW ALL LEADS (admin dashboard)
+// GET /leads
+// ────────────────────────────────────────────────────────────────────────────
 app.get('/leads', (req, res) => {
   const leads = Object.entries(leadProfiles).map(([phone, profile]) => ({
     phone,
@@ -290,11 +335,11 @@ app.get('/leads', (req, res) => {
   res.json({ total: leads.length, leads });
 });
 
-// ── TEST ──────────────────────────────────────────────────────────────────────
+// ── TEST ENDPOINT ─────────────────────────────────────────────────────────────
 app.get('/test', async (req, res) => {
-  const result = { gemini: null, interakt: null, errors: [] };
+  const result = { gemini: null, interakt: null, errors: [], meetLink: CONFIG.MEET_LINK };
   try {
-    const reply = await callGemini('test_debug_' + Date.now(), 'Hello, I am interested in setting up a 100-bed hospital');
+    const reply = await callGemini('test_debug_' + Date.now(), 'Hello, I want to set up a 100-bed hospital in Pune');
     result.gemini = { ok: true, reply };
   } catch (e) {
     result.gemini = { ok: false, error: e.message };
@@ -313,26 +358,25 @@ app.get('/test', async (req, res) => {
   res.json(result);
 });
 
-// ── HOME ──────────────────────────────────────────────────────────────────────
+// ── HOME / STATUS ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
-    status: 'Priya is live',
-    brand:  'Hospertz India Pvt. Ltd. | www.hospertz.com',
-    ai:     'Gemini 2.5 Flash',
+    status:    'Priya is live ✅',
+    ai:        'Gemini 2.5 Flash',
+    meetLink:  CONFIG.MEET_LINK,
     funnels: {
-      inbound:  'Customer texts Hospertz WA -> Priya replies  [POST /api/webhook]',
-      outbound: 'Input lead -> Priya sends brand intro + follow-up  [POST /send-first-message]'
+      inbound:  'Customer texts Hospertz WA → Priya auto-replies  [POST /api/webhook]',
+      outbound: 'Input a lead → Priya sends first msg             [POST /send-first-message]'
     },
     endpoints: {
-      test:     'GET  /test',
-      leads:    'GET  /leads',
-      outbound: 'POST /send-first-message  { name, phone, projectHint }'
+      test:    'GET  /test',
+      leads:   'GET  /leads',
+      outbound:'POST /send-first-message  { name, phone, projectHint }'
     },
-    meetLink:  CONFIG.MEET_LINK,
     timestamp: new Date().toISOString()
   });
 });
 
 app.listen(CONFIG.PORT, () => {
-  console.log(`Priya running on port ${CONFIG.PORT}, Gemini key set: ${!!CONFIG.GEMINI_API_KEY}`);
+  console.log(`Priya running on port ${CONFIG.PORT} | Gemini key: ${!!CONFIG.GEMINI_API_KEY} | Meet: ${CONFIG.MEET_LINK}`);
 });
