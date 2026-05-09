@@ -188,7 +188,7 @@ async function callGemini(phone, userMessage, retryCount = 0) {
     generationConfig: { temperature: 0.75, maxOutputTokens: 300 }
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -199,10 +199,10 @@ async function callGemini(phone, userMessage, retryCount = 0) {
   if (!res.ok) {
     const err = await res.text();
     // Retry once on 5xx or rate limit errors
-    if (retryCount === 0 && (res.status >= 500 || res.status === 429)) {
+    if (retryCount < 2 && (res.status >= 500 || res.status === 429)) {
       console.log(`Gemini ${res.status} – retrying in 3s...`);
-      await new Promise(r => setTimeout(r, 3000));
-      return callGemini(phone, userMessage, 1);
+      await new Promise(r => setTimeout(r, retryCount === 0 ? 8000 : 15000));
+      return callGemini(phone, userMessage, retryCount + 1);
     }
     throw new Error(`Gemini ${res.status}: ${err}`);
   }
@@ -372,7 +372,7 @@ app.get('/test', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     status:    'Dhwani is live ✅',
-    ai:        'Gemini 2.5 Flash',
+    ai:        'Gemini 1.5 Flash',
     meetLink:  CONFIG.MEET_LINK,
     funnels: {
       inbound:  'Customer texts Hospertz WA → Dhwani auto-replies  [POST /api/webhook]',
