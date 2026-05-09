@@ -1,5 +1,5 @@
 // ── HOSPERTZ WHATSAPP AI AGENT – DHWANI ──────────────────────────────────────
-// Stack: Node.js + Express + Google Gemini + Interakt WhatsApp API
+// Stack: Node.js + Express + Anthropic Claude + Interakt WhatsApp API
 // Deploy free on: railway.app
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 const CONFIG = {
-  GEMINI_API_KEY:   process.env.GEMINI_API_KEY   || '',
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
   INTERAKT_API_KEY: process.env.INTERAKT_API_KEY  || 'WmYyYld6ZjB0MEZEVnBxR1U1ODRUbU56ZTlsQmhQYVFBNGsxTmhZYk1mbzo=',
   ALERT_PHONE:      process.env.ALERT_PHONE       || '918369333635',
   BUSINESS_PHONE:   process.env.BUSINESS_PHONE    || '918655963914',
@@ -145,9 +145,9 @@ function extractLeadInfo(phone, text, customerName) {
   leadProfiles[phone] = p;
 }
 
-// ── CALL GEMINI (with retry) ──────────────────────────────────────────────────
-async function callGemini(phone, userMessage, retryCount = 0) {
-  if (!CONFIG.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+// ── CALL CLAUDE (with retry) ──────────────────────────────────────────────────
+async function callClaude(phone, userMessage, retryCount = 0) {
+  if (!CONFIG.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
   if (!conversations[phone]) conversations[phone] = [];
 
   // Only push user message on first attempt (not retries)
@@ -155,60 +155,63 @@ async function callGemini(phone, userMessage, retryCount = 0) {
     conversations[phone].push({ role: 'user', content: userMessage });
   }
 
-  // Take last 20 messages, then find the first user message so we never
-  // hand Gemini a history that starts with a model/assistant turn.
-  // (Bug: slice(-14) after 7 exchanges cuts off the leading user msg → Gemini 400)
+  // Take last 20 messages, ensure history starts with a user turn
   const rawHistory = conversations[phone].slice(-20);
   const firstUserIdx = rawHistory.findIndex(m => m.role === 'user');
   const history = firstUserIdx > 0 ? rawHistory.slice(firstUserIdx) : rawHistory;
 
-  // Build contents with strict alternation (Gemini: user, model, user, model…)
-  const contents = [];
+  // Build messages with strict user/assistant alternation
+  const messages = [];
   let lastRole = null;
   for (const msg of history) {
-    const role = msg.role === 'assistant' ? 'model' : 'user';
+    const role = msg.role === 'assistant' ? 'assistant' : 'user';
     if (role === lastRole) continue; // skip consecutive same-role messages
-    contents.push({ role, parts: [{ text: msg.content }] });
+    messages.push({ role, content: msg.content });
     lastRole = role;
   }
 
   // Safety: must start with user
-  if (contents.length === 0 || contents[0].role !== 'user') {
-    contents.unshift({ role: 'user', parts: [{ text: userMessage }] });
+  if (messages.length === 0 || messages[0].role !== 'user') {
+    messages.unshift({ role: 'user', content: userMessage });
   }
 
   // Safety: must end with user
-  if (contents[contents.length - 1].role !== 'user') {
-    contents.push({ role: 'user', parts: [{ text: userMessage }] });
+  if (messages[messages.length - 1].role !== 'user') {
+    messages.push({ role: 'user', content: userMessage });
   }
 
   const body = {
-    system_instruction: { parts: [{ text: buildSystemPrompt(phone) }] },
-    contents,
-    generationConfig: { temperature: 0.75, maxOutputTokens: 300 }
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 300,
+    system: buildSystemPrompt(phone),
+    messages
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
-  const res = await fetch(url, {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CONFIG.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(25000) // 25s timeout
   });
 
   if (!res.ok) {
     const err = await res.text();
-    // Retry once on 5xx or rate limit errors
-    if (retryCount < 2 && (res.status >= 500 || res.status === 429)) {
-      console.log(`Gemini ${res.status} – retrying in 3s...`);
-      await new Promise(r => setTimeout(r, retryCount === 0 ? 8000 : 15000));
-      return callGemini(phone, userMessage, retryCount + 1);
+    // Retry on server errors or overload (529)
+    if (retryCount < 2 && (res.status >= 500 || res.status === 529)) {
+      const delay = retryCount === 0 ? 3000 : 8000;
+      console.log(`Claude ${res.status} – retry ${retryCount + 1} in ${delay/1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+      return callClaude(phone, userMessage, retryCount + 1);
     }
-    throw new Error(`Gemini ${res.status}: ${err}`);
+    throw new Error(`Claude ${res.status}: ${err}`);
   }
 
   const data  = await res.json();
-  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
+  const reply = data.content?.[0]?.text
     || "Hi! I'm Dhwani from Hospertz. How can I help with your hospital project? 😊";
 
   conversations[phone].push({ role: 'assistant', content: reply });
@@ -271,7 +274,7 @@ app.post('/api/webhook', async (req, res) => {
 
     // Generate and send Dhwani's reply
     try {
-      const reply = await callGemini(phone, text);
+      const reply = await callClaude(phone, text);
       console.log(`[DHWANI → ${phone}]: ${reply}`);
       await sendWhatsAppMessage(phone, reply);
     } catch (aiErr) {
@@ -319,7 +322,7 @@ ${projectHint ? `Context: They may be interested in: ${projectHint}.` : ''}
 Write a very warm, short follow-up message (under 50 words) as Dhwani from Hospertz — right after the brand intro was sent.
 Ask ONE open question about their hospital project to start the conversation. Don't repeat the services list.`;
 
-    const followUp = await callGemini(fullPhone, openingPrompt);
+    const followUp = await callClaude(fullPhone, openingPrompt);
     await sendWhatsAppMessage(cleanPhone, followUp);
 
     console.log(`[OUTBOUND → ${cleanPhone}]: Intro + Dhwani follow-up: "${followUp}"`);
@@ -347,18 +350,18 @@ app.get('/leads', (req, res) => {
 
 // ── TEST ENDPOINT ─────────────────────────────────────────────────────────────
 app.get('/test', async (req, res) => {
-  const result = { gemini: null, interakt: null, errors: [], meetLink: CONFIG.MEET_LINK };
+  const result = { claude: null, interakt: null, errors: [], meetLink: CONFIG.MEET_LINK };
   try {
-    const reply = await callGemini('test_debug_' + Date.now(), 'Hello, I want to set up a 100-bed hospital in Pune');
-    result.gemini = { ok: true, reply };
+    const reply = await callClaude('test_debug_' + Date.now(), 'Hello, I want to set up a 100-bed hospital in Pune');
+    result.claude = { ok: true, reply };
   } catch (e) {
-    result.gemini = { ok: false, error: e.message };
-    result.errors.push('Gemini: ' + e.message);
+    result.claude = { ok: false, error: e.message };
+    result.errors.push('Claude: ' + e.message);
   }
-  if (result.gemini?.ok) {
+  if (result.claude?.ok) {
     try {
       const phone = CONFIG.ALERT_PHONE.replace(/^91/, '');
-      const sendRes = await sendWhatsAppMessage(phone, 'Test from Dhwani: ' + result.gemini.reply.slice(0, 80));
+      const sendRes = await sendWhatsAppMessage(phone, 'Test from Dhwani: ' + result.claude.reply.slice(0, 80));
       result.interakt = { ok: true, response: sendRes };
     } catch (e) {
       result.interakt = { ok: false, error: e.message };
@@ -372,7 +375,7 @@ app.get('/test', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     status:    'Dhwani is live ✅',
-    ai:        'Gemini 1.5 Flash',
+    ai:        'Claude Haiku 4.5',
     meetLink:  CONFIG.MEET_LINK,
     funnels: {
       inbound:  'Customer texts Hospertz WA → Dhwani auto-replies  [POST /api/webhook]',
@@ -388,5 +391,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(CONFIG.PORT, () => {
-  console.log(`Dhwani running on port ${CONFIG.PORT} | Gemini key: ${!!CONFIG.GEMINI_API_KEY} | Meet: ${CONFIG.MEET_LINK}`);
+  console.log(`Dhwani running on port ${CONFIG.PORT} | Claude key: ${!!CONFIG.ANTHROPIC_API_KEY} | Meet: ${CONFIG.MEET_LINK}`);
 });
