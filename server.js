@@ -19,6 +19,7 @@ const CONFIG = {
 // ── IN-MEMORY STORES ───────────────────────────────────────────────────────────
 const conversations = {}; // { phone: [{ role, content }] }
 const leadProfiles  = {}; // { phone: { name, email, projectType, city, budget } }
+const seenContacts = new Set(); // Track seen contacts to avoid double-replies with workflow
 
 // ── HOSPERTZ PORTFOLIO & PAST PROJECTS ────────────────────────────────────────
 const HOSPERTZ_PORTFOLIO = `
@@ -229,7 +230,15 @@ app.post('/api/webhook', async (req, res) => {
 
     try {
       const reply = await callGroq(phone, text);
-      console.log(`[DHWANI → ${phone}]: ${reply}`);
+      console.log(`[DHWANI → ${ph
+  // Skip first-time contacts — Interakt workflow handles initial lead capture
+  if (!seenContacts.has(phone)) {
+    seenContacts.add(phone);
+    console.log('[WORKFLOW] New contact ' + phone + ' — letting workflow handle first message');
+    return;
+  }
+  seenContacts.add(phone);
+one}]: ${reply}`);
       await sendWhatsAppMessage(phone, reply);
     } catch (aiErr) {
       console.error('AI/Send error:', aiErr.message);
