@@ -348,7 +348,7 @@ What are you looking for? Please choose below 👇
 (ICU, OT, expansion, interiors)
 
 *3️⃣  Talk to Expert*
-(Free 30-min call with Dr. Vishal Jadhav)
+(Free 30-min call with our healthcare specialist)
 
 Reply *1*, *2*, or *3* 👇`;
 
