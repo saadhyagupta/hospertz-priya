@@ -453,7 +453,7 @@ Your booking is confirmed! ✅
 
 Our *healthcare infrastructure specialist* will connect with you at your booked slot.
 
-You'll also receive a calendar invite and pre-call brief at *${.email || 'your email'}* 📧
+You'll also receive a calendar invite and pre-call brief at *${p.email || 'your email'}* 📧
 
 Looking forward to understanding your project! 🏥`;
     await sendWhatsAppMessage(phone, confirmMsg);
@@ -462,7 +462,7 @@ Looking forward to understanding your project! 🏥`;
 `🔔 *NEW MEETING BOAKED*
 
 👠Name: ${p.name || 'Unknown'}
-📞 Phone: +${.phone}
+📞 Phone: +${p.phone}
 📦 Email: ${p.email || '-'}
 🏥 Project: ${p.projectType || '-'}
 📍 City: ${p.city || '-'}
@@ -587,7 +587,7 @@ app.post('/activate-dhwani', (req, res) => {
 
 app.post('/reset-contact', (req, res) => {
   const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: 'phone required' || '');
+  if (!phone) return res.status(400).json({ error: 'phone required' });
   contactFlow.delete(phone);
   delete conversations[phone];
   delete leadProfiles[phone];
@@ -597,7 +597,7 @@ app.post('/reset-contact', (req, res) => {
 
 app.get('/leads', (req, res) => {
   const leads = Object.entries(leadProfiles).map(([phone, profile]) => {
-    cont f = contactFlow.get(phone) || {};
+    const f = contactFlow.get(phone) || {};
     return { phone, ...profile,
       messages:    conversations[phone]?.length || 0,
       lastMessage: conversations[phone]?.slice(-1)?.[0]?.content?.slice(0, 100) || '',
@@ -648,7 +648,7 @@ Warm regards,
     const followUp = await callGroq(fullPhone, prompt);
     await sendWhatsAppMessage(cleanPhone, followUp);
 
-    setFlow(fullPhone, { path: 'DHWANI', step: 0 }); // outbound → Dhwani directly
+    setFlow(fullPhone, { path: null, step: 0 }); // outbound → show options menu, Dhwani only after meeting booked
 
     res.json({ status: 'sent', phone: cleanPhone, name, intro: 'sent', followUp });
   } catch (err) {
