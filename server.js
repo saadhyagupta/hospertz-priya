@@ -490,8 +490,14 @@ Please review the Calendly booking and prepare for the call.`;
 }
 
 // ── INBOUND WEBHOOK ───────────────────────────────────────────────────────────
+// DHWANI PAUSED — Interakt workflow handles all inbound WhatsApp conversations
 app.post('/api/webhook', async (req, res) => {
   try {
+    // Dhwani is paused. Acknowledge webhook but send no WhatsApp replies.
+    // Interakt's "Hospertz - Ad Lead Flow" workflow handles all conversations.
+    return res.status(200).json({ status: 'paused - interakt handles' });
+
+    // ── PAUSED CODE BELOW (kept for easy re-activation) ──────────────────────
     const body     = req.body;
     const customer = body?.data?.customer;
     const message  = body?.data?.message;
